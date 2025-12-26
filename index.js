@@ -39,7 +39,8 @@ app.post('/api/gemini', async (req, res) => {
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
         const result = await model.generateContent(prompt);
         const text = result.response.text();
         
