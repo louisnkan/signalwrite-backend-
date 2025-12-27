@@ -28,7 +28,19 @@ app.get('/', (req, res) => {
     });
 });
 
-// Main API endpoint
+/api/gemini endpoint
+// Test endpoint to list available models
+app.get('/api/test-models', async (req, res) => {
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`
+        );
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 app.post('/api/gemini', async (req, res) => {
     console.log('Request received:', req.body);
     
