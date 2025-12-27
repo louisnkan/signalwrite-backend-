@@ -27,7 +27,14 @@ app.get('/', (req, res) => {
         hasApiKey: !!process.env.GEMINI_API_KEY
     });
 });
-
+// Ultra-simple test endpoint
+app.post('/api/test', async (req, res) => {
+    try {
+        res.json({ message: 'Test successful', body: req.body });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 /api/gemini endpoint
 // Test endpoint to list available models
 app.get('/api/test-models', async (req, res) => {
