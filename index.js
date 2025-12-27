@@ -35,12 +35,38 @@ app.post('/api/gemini', async (req, res) => {
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        console.log('Calling Gemini API');
+        console.log('Calling Gemini API directly');
 
-        const model = genAI.getGenerativeModel({ model: 'models/gemini-1.5-flash' });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        // Direct API call - no SDK
+        const apiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
+        
+        const response = await fetch(`${apiUrl}?key=${process.env.GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }]
+            })
+        });
+
+        const data = await response.json();
+        
+        console.log('Response status:', response.status);
+
+        if (!response.ok) {
+            console.error('API error:', data);
+            return res.status(500).json({ 
+                error: 'Gemini API error',
+                details: data 
+            });
+        }
+
+        const text = data.candidates[0].content.parts[0].text;
         
         console.log('Success');
         
