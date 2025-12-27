@@ -37,56 +37,85 @@ app.post('/api/test', async (req, res) => {
 });
 /api/gemini endpoint
 // Test endpoint to list available models
-app.get('/api/test-models', async (req, res) => {
-    try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`
-        );
-        const data = await response.json();
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 app.post('/api/gemini', async (req, res) => {
-    console.log('Request received:', req.body);
+    console.log('=== REQUEST START ===');
+    console.log('Body:', JSON.stringify(req.body));
+    console.log('Has API Key:', !!process.env.GEMINI_API_KEY);
     
     try {
         const { prompt } = req.body;
         
         if (!prompt) {
+            console.log('ERROR: No prompt provided');
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        // Direct API call instead of using SDK
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [{
-                            text: prompt
-                        }]
-                    }]
-                })
-            }
-        );
+        console.log('Prompt received:', prompt.substring(0, 50) + '...');
+        console.log('Calling Gemini API...');
 
-        const data = await response.json();
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
         
-        console.log('Gemini response:', data);
+        console.log('API URL (key hidden):', apiUrl.replace(/key=.+/, 'key=***'));
 
-        if (!response.ok) {
-            console.error('Gemini API error:', data);
+        const fetchResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }]
+            })
+        });
+
+        console.log('Fetch completed. Status:', fetchResponse.status);
+
+        const data = await fetchResponse.json();
+        
+        console.log('Response data:', JSON.stringify(data).substring(0, 200));
+
+        if (!fetchResponse.ok) {
+            console.error('Gemini API returned error:', JSON.stringify(data));
             return res.status(500).json({ 
                 error: 'Gemini API error',
+                status: fetchResponse.status,
                 details: data 
             });
         }
+
+        // Check if response has expected structure
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+            console.error('Unexpected response structure:', JSON.stringify(data));
+            return res.status(500).json({ 
+                error: 'Unexpected API response structure',
+                data: data
+            });
+        }
+
+        const text = data.candidates[0].content.parts[0].text;
+        
+        console.log('Success! Response length:', text.length);
+        console.log('=== REQUEST END ===');
+        
+        res.json({ response: text });
+        
+    } catch (error) {
+        console.error('=== CRITICAL ERROR ===');
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        console.error('=== ERROR END ===');
+        
+        res.status(500).json({ 
+            error: 'Server error',
+            message: error.message,
+            name: error.name
+        });
+    }
+});
 
         // Extract text from response
         const text = data.candidates[0].content.parts[0].text;
