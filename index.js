@@ -1,5 +1,5 @@
 import express from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 const app = express();
 
@@ -16,12 +16,15 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
 
 app.get('/', (req, res) => {
     res.json({ 
         status: 'online',
-        hasApiKey: !!process.env.GEMINI_API_KEY
+        hasApiKey: !!process.env.OPENAI_API_KEY,
+        provider: 'OpenAI'
     });
 });
 
@@ -35,38 +38,16 @@ app.post('/api/gemini', async (req, res) => {
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        console.log('Calling Gemini API directly');
+        console.log('Calling OpenAI API');
 
-        // Direct API call - no SDK
-        const apiUrl = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent';
-        
-        const response = await fetch(`${apiUrl}?key=${process.env.GEMINI_API_KEY}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: prompt
-                    }]
-                }]
-            })
+        const completion = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                { role: "user", content: prompt }
+            ]
         });
-
-        const data = await response.json();
         
-        console.log('Response status:', response.status);
-
-        if (!response.ok) {
-            console.error('API error:', data);
-            return res.status(500).json({ 
-                error: 'Gemini API error',
-                details: data 
-            });
-        }
-
-        const text = data.candidates[0].content.parts[0].text;
+        const text = completion.choices[0].message.content;
         
         console.log('Success');
         
