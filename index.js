@@ -1,5 +1,4 @@
 import express from 'express';
-import fetch from 'node-fetch';
 
 const app = express();
 
@@ -19,13 +18,12 @@ app.use(express.json());
 app.get('/', (req, res) => {
     res.json({ 
         status: 'online',
-        hasApiKey: !!process.env.HUGGINGFACE_API_KEY,
-        provider: 'Hugging Face'
+        provider: 'Mock AI (Testing)'
     });
 });
 
 app.post('/api/gemini', async (req, res) => {
-    console.log('Request received:', req.body);
+    console.log('Request received');
     
     try {
         const { prompt } = req.body;
@@ -34,58 +32,58 @@ app.post('/api/gemini', async (req, res) => {
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        console.log('Calling Hugging Face API');
+        console.log('Processing with mock AI...');
 
-        const response = await fetch(
-            'https://api-inference.huggingface.co/models/google/flan-t5-large'
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${process.env.HUGGINGFACE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    inputs: prompt,
-                    parameters: {
-                        max_new_tokens: 1000,
-                        temperature: 0.7,
-                        return_full_text: false
-                    }
-                })
+        // MOCK AI RESPONSES for testing
+        // We'll replace this with real AI once frontend is perfect
+        
+        const responses = {
+            professional: (text) => {
+                return text
+                    .replace(/I think/gi, 'The evidence suggests')
+                    .replace(/maybe/gi, 'potentially')
+                    .replace(/kind of/gi, '')
+                    .replace(/sort of/gi, '')
+                    + '\n\nExecutive Summary: Analysis completed with strategic precision.';
+            },
+            anxiety: (text) => {
+                return text
+                    .replace(/I\'m sorry/gi, '')
+                    .replace(/just wanted to/gi, 'I will')
+                    .replace(/if that\'s okay/gi, '')
+                    + '\n\nNote: Communication streamlined for clarity.';
+            },
+            journalism: (text) => {
+                return `LEAD: ${text.split('.')[0]}.\n\nDETAILS: ${text.substring(text.indexOf('.') + 1).trim()}\n\nSOURCES: Analysis based on provided context.`;
+            },
+            creative: (text) => {
+                return text + '\n\nThe words danced across consciousness, each syllable a brushstroke painting vivid imagery in the theatre of the mind.';
             }
-        );
+        };
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('API Error:', errorText);
-            return res.status(response.status).json({ 
-                error: 'API request failed',
-                details: errorText 
-            });
-        }
+        // Detect mode from prompt (simple detection)
+        let mode = 'professional';
+        if (prompt.includes('anxiety') || prompt.includes('Anxiety')) mode = 'anxiety';
+        if (prompt.includes('journalism') || prompt.includes('Journalism')) mode = 'journalism';
+        if (prompt.includes('creative') || prompt.includes('Creative')) mode = 'creative';
 
-        const data = await response.json();
-        console.log('API Response:', JSON.stringify(data).substring(0, 200));
-
-        let text = '';
-        if (Array.isArray(data) && data[0]?.generated_text) {
-            text = data[0].generated_text;
-        } else if (data.generated_text) {
-            text = data.generated_text;
-        } else if (typeof data === 'string') {
-            text = data;
-        } else {
-            text = JSON.stringify(data);
-        }
+        // Extract actual text (remove mode instructions)
+        const actualText = prompt.split('\n').slice(-1)[0] || prompt;
         
-        console.log('Success - Response length:', text.length);
+        // Apply transformation
+        const refinedText = responses[mode](actualText);
         
-        res.json({ response: text });
+        console.log('Success');
+        
+        // Simulate slight delay (like real API)
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        res.json({ response: refinedText });
         
     } catch (error) {
-        console.error('Catch Error:', error.message);
+        console.error('Error:', error.message);
         res.status(500).json({ 
-            error: 'Server error',
+            error: 'Processing failed',
             message: error.message 
         });
     }
