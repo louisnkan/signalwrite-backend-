@@ -37,7 +37,7 @@ app.post('/api/gemini', async (req, res) => {
         console.log('Calling Hugging Face API');
 
         const response = await fetch(
-            'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1',
+            'https://router.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1',
             {
                 method: 'POST',
                 headers: {
