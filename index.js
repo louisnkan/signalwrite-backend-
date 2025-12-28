@@ -1,4 +1,5 @@
 import express from 'express';
+import fetch from 'node-fetch';
 
 const app = express();
 
@@ -19,12 +20,12 @@ app.get('/', (req, res) => {
     res.json({ 
         status: 'online',
         hasApiKey: !!process.env.HUGGINGFACE_API_KEY,
-        provider: 'Hugging Face (FREE)'
+        provider: 'Hugging Face'
     });
 });
 
 app.post('/api/gemini', async (req, res) => {
-    console.log('Request received');
+    console.log('Request received:', req.body);
     
     try {
         const { prompt } = req.body;
@@ -48,41 +49,41 @@ app.post('/api/gemini', async (req, res) => {
                     parameters: {
                         max_new_tokens: 1000,
                         temperature: 0.7,
-                        top_p: 0.9,
                         return_full_text: false
                     }
                 })
             }
         );
 
-        const data = await response.json();
-        
-        console.log('API Response:', data);
-
         if (!response.ok) {
-            console.error('API Error:', data);
-            return res.status(500).json({ 
-                error: 'API error',
-                details: data 
+            const errorText = await response.text();
+            console.error('API Error:', errorText);
+            return res.status(response.status).json({ 
+                error: 'API request failed',
+                details: errorText 
             });
         }
 
-        // Handle different response formats
-        let text;
+        const data = await response.json();
+        console.log('API Response:', JSON.stringify(data).substring(0, 200));
+
+        let text = '';
         if (Array.isArray(data) && data[0]?.generated_text) {
             text = data[0].generated_text;
         } else if (data.generated_text) {
             text = data.generated_text;
+        } else if (typeof data === 'string') {
+            text = data;
         } else {
             text = JSON.stringify(data);
         }
         
-        console.log('Success');
+        console.log('Success - Response length:', text.length);
         
         res.json({ response: text });
         
     } catch (error) {
-        console.error('Error:', error.message);
+        console.error('Catch Error:', error.message);
         res.status(500).json({ 
             error: 'Server error',
             message: error.message 
