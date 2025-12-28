@@ -1,3 +1,14 @@
+//
+console.log('Function started');
+
+// In your /api/gemini route, add:
+app.post('/api/gemini', async (req, res) => {
+    console.log('Received request:', req.body);
+    
+    // Add CORS headers explicitly
+    res.header('Access-Control-Allow-Origin', '*');
+    
+    //
 import express from 'express';
 
 const app = express();
