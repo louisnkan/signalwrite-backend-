@@ -1,14 +1,5 @@
-//
 console.log('Function started');
 
-// In your /api/gemini route, add:
-app.post('/api/gemini', async (req, res) => {
-    console.log('Received request:', req.body);
-    
-    // Add CORS headers explicitly
-    res.header('Access-Control-Allow-Origin', '*');
-    
-    //
 import express from 'express';
 
 const app = express();
@@ -33,8 +24,11 @@ app.get('/', (req, res) => {
     });
 });
 
+// EXISTING ENDPOINT (unchanged)
 app.post('/api/gemini', async (req, res) => {
-    console.log('Request received');
+    console.log('Gemini request received');
+    
+    res.header('Access-Control-Allow-Origin', '*');
     
     try {
         const { prompt } = req.body;
@@ -45,9 +39,6 @@ app.post('/api/gemini', async (req, res) => {
 
         console.log('Processing with mock AI...');
 
-        // MOCK AI RESPONSES for testing
-        // We'll replace this with real AI once frontend is perfect
-        
         const responses = {
             professional: (text) => {
                 return text
@@ -72,21 +63,16 @@ app.post('/api/gemini', async (req, res) => {
             }
         };
 
-        // Detect mode from prompt (simple detection)
         let mode = 'professional';
         if (prompt.includes('anxiety') || prompt.includes('Anxiety')) mode = 'anxiety';
         if (prompt.includes('journalism') || prompt.includes('Journalism')) mode = 'journalism';
         if (prompt.includes('creative') || prompt.includes('Creative')) mode = 'creative';
 
-        // Extract actual text (remove mode instructions)
         const actualText = prompt.split('\n').slice(-1)[0] || prompt;
-        
-        // Apply transformation
         const refinedText = responses[mode](actualText);
         
         console.log('Success');
         
-        // Simulate slight delay (like real API)
         await new Promise(resolve => setTimeout(resolve, 1500));
         
         res.json({ response: refinedText });
@@ -95,6 +81,66 @@ app.post('/api/gemini', async (req, res) => {
         console.error('Error:', error.message);
         res.status(500).json({ 
             error: 'Processing failed',
+            message: error.message 
+        });
+    }
+});
+
+// NEW ENDPOINT for SignalWrite Editor
+app.post('/refine', async (req, res) => {
+    console.log('Refine request received:', req.body);
+    
+    try {
+        const { text, mode } = req.body;
+        
+        if (!text) {
+            return res.status(400).json({ error: 'No text provided' });
+        }
+
+        console.log(`Processing with ${mode} mode...`);
+
+        const responses = {
+            professional: (t) => {
+                return t
+                    .replace(/I think/gi, 'The evidence suggests')
+                    .replace(/maybe/gi, 'potentially')
+                    .replace(/kind of/gi, '')
+                    .replace(/sort of/gi, '')
+                    .replace(/I was thinking/gi, 'Consider')
+                    .replace(/probably/gi, '');
+            },
+            'anxiety-neutralizer': (t) => {
+                return t
+                    .replace(/I\'m sorry/gi, '')
+                    .replace(/just wanted to/gi, 'I will')
+                    .replace(/if that\'s okay/gi, '')
+                    .replace(/I hope this is alright/gi, '')
+                    .replace(/maybe we could/gi, 'Let\'s');
+            },
+            journalism: (t) => {
+                const sentences = t.split('.').filter(s => s.trim());
+                return sentences.length > 0 
+                    ? `${sentences[0].trim()}. ${sentences.slice(1).join('. ').trim()}`
+                    : t;
+            },
+            creative: (t) => {
+                return t + ' The words shimmered with possibility, each phrase a doorway to deeper meaning.';
+            }
+        };
+
+        const selectedMode = mode || 'professional';
+        const transform = responses[selectedMode] || responses.professional;
+        
+        const refined = transform(text);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        res.json({ refined });
+        
+    } catch (error) {
+        console.error('Refine error:', error.message);
+        res.status(500).json({ 
+            error: 'Refinement failed',
             message: error.message 
         });
     }
