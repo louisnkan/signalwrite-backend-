@@ -39,29 +39,42 @@ app.post('/api/gemini', async (req, res) => {
 
         console.log('Processing with mock AI...');
 
-        const responses = {
-            professional: (text) => {
-                return text
-                    .replace(/I think/gi, 'The evidence suggests')
-                    .replace(/maybe/gi, 'potentially')
-                    .replace(/kind of/gi, '')
-                    .replace(/sort of/gi, '')
-                    + '\n\nExecutive Summary: Analysis completed with strategic precision.';
-            },
-            anxiety: (text) => {
-                return text
-                    .replace(/I\'m sorry/gi, '')
-                    .replace(/just wanted to/gi, 'I will')
-                    .replace(/if that\'s okay/gi, '')
-                    + '\n\nNote: Communication streamlined for clarity.';
-            },
-            journalism: (text) => {
-                return `LEAD: ${text.split('.')[0]}.\n\nDETAILS: ${text.substring(text.indexOf('.') + 1).trim()}\n\nSOURCES: Analysis based on provided context.`;
-            },
-            creative: (text) => {
-                return text + '\n\nThe words danced across consciousness, each syllable a brushstroke painting vivid imagery in the theatre of the mind.';
-            }
-        };
+      const responses = {
+    professional: (text) => {
+        return text
+            .replace(/I think/gi, 'The evidence suggests')
+            .replace(/maybe/gi, 'potentially')
+            .replace(/kind of/gi, '')
+            .replace(/sort of/gi, '')
+            .replace(/I was thinking/gi, 'Consider')
+            .replace(/probably/gi, '');
+    },
+    'anxiety-neutralizer': (text) => {
+        return text
+            .replace(/I\'m sorry/gi, '')
+            .replace(/just wanted to/gi, 'I will')
+            .replace(/if that\'s okay/gi, '')
+            .replace(/I hope this is alright/gi, '')
+            .replace(/maybe we could/gi, 'Let\'s')
+            .replace(/just/gi, '')
+            .replace(/wondering if/gi, '')
+            .replace(/sorry/gi, '');
+    },
+    journalism: (text) => {
+        const sentences = text.split('.').filter(s => s.trim());
+        return sentences.length > 0 
+            ? `${sentences[0].trim()}. ${sentences.slice(1).join('. ').trim()}`
+            : text;
+    },
+    legal: (text) => {
+        return text
+            .replace(/you owe/gi, 'remains outstanding')
+            .replace(/pay me/gi, 'remit payment')
+            .replace(/I need/gi, 'We respectfully request')
+            .replace(/ASAP/gi, 'at your earliest convenience')
+            + '\n\nPer our agreement, please address this matter within seven (7) business days.';
+    }
+};
 
         let mode = 'professional';
         if (prompt.includes('anxiety') || prompt.includes('Anxiety')) mode = 'anxiety';
