@@ -1,11 +1,10 @@
-console.log('Function started');
-
 import express from 'express';
 
 const app = express();
 
+// CORS - Allow your frontend
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'https://louisnkan.github.io');
+    res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
     
@@ -17,146 +16,139 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// Health check
 app.get('/', (req, res) => {
     res.json({ 
         status: 'online',
-        provider: 'Mock AI (Testing)'
+        timestamp: new Date().toISOString()
     });
 });
 
-// EXISTING ENDPOINT (unchanged)
-app.post('/api/gemini', async (req, res) => {
-    console.log('Gemini request received');
-    
-    res.header('Access-Control-Allow-Origin', '*');
-    
-    try {
-        const { prompt } = req.body;
-        
-        if (!prompt) {
-            return res.status(400).json({ error: 'No prompt provided' });
-        }
+// Rate limiting (simple in-memory)
+const requestCounts = new Map();
+const RATE_LIMIT = 100; // requests per hour
+const RATE_WINDOW = 3600000; // 1 hour in ms
 
-        console.log('Processing with mock AI...');
-
-      const responses = {
-    professional: (text) => {
-        return text
-            .replace(/I think/gi, 'The evidence suggests')
-            .replace(/maybe/gi, 'potentially')
-            .replace(/kind of/gi, '')
-            .replace(/sort of/gi, '')
-            .replace(/I was thinking/gi, 'Consider')
-            .replace(/probably/gi, '');
-    },
-    'anxiety-neutralizer': (text) => {
-        return text
-            .replace(/I\'m sorry/gi, '')
-            .replace(/just wanted to/gi, 'I will')
-            .replace(/if that\'s okay/gi, '')
-            .replace(/I hope this is alright/gi, '')
-            .replace(/maybe we could/gi, 'Let\'s')
-            .replace(/just/gi, '')
-            .replace(/wondering if/gi, '')
-            .replace(/sorry/gi, '');
-    },
-    journalism: (text) => {
-        const sentences = text.split('.').filter(s => s.trim());
-        return sentences.length > 0 
-            ? `${sentences[0].trim()}. ${sentences.slice(1).join('. ').trim()}`
-            : text;
-    },
-    legal: (text) => {
-        return text
-            .replace(/you owe/gi, 'remains outstanding')
-            .replace(/pay me/gi, 'remit payment')
-            .replace(/I need/gi, 'We respectfully request')
-            .replace(/ASAP/gi, 'at your earliest convenience')
-            + '\n\nPer our agreement, please address this matter within seven (7) business days.';
+function checkRateLimit(ip) {
+    const now = Date.now();
+    const userRequests = requestCounts.get(ip) || [];
+    
+    // Remove old requests
+    const recentRequests = userRequests.filter(time => now - time < RATE_WINDOW);
+    
+    if (recentRequests.length >= RATE_LIMIT) {
+        return false;
     }
-};
+    
+    recentRequests.push(now);
+    requestCounts.set(ip, recentRequests);
+    return true;
+}
 
-        let mode = 'professional';
-        if (prompt.includes('anxiety') || prompt.includes('Anxiety')) mode = 'anxiety';
-        if (prompt.includes('journalism') || prompt.includes('Journalism')) mode = 'journalism';
-        if (prompt.includes('creative') || prompt.includes('Creative')) mode = 'creative';
-
-        const actualText = prompt.split('\n').slice(-1)[0] || prompt;
-        const refinedText = responses[mode](actualText);
+// Refinement endpoint
+app.post('/refine', async (req, res) => {
+    try {
+        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         
-        console.log('Success');
+        // Check rate limit
+        if (!checkRateLimit(ip)) {
+            return res.status(429).json({ 
+                error: 'Rate limit exceeded',
+                message: 'Please try again in an hour'
+            });
+        }
         
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        const { text, mode } = req.body;
         
-        res.json({ response: refinedText });
+        // Validation
+        if (!text || typeof text !== 'string') {
+            return res.status(400).json({ 
+                error: 'Invalid input',
+                message: 'Text is required'
+            });
+        }
+        
+        if (text.length > 10000) {
+            return res.status(400).json({ 
+                error: 'Text too long',
+                message: 'Maximum 10,000 characters'
+            });
+        }
+        
+        // Refinement logic
+        const refinements = {
+            'professional': (t) => {
+                return t
+                    .replace(/\bI think\b/gi, 'The evidence suggests')
+                    .replace(/\bmaybe\b/gi, 'potentially')
+                    .replace(/\bkind of\b/gi, '')
+                    .replace(/\bsort of\b/gi, '')
+                    .replace(/\bI was thinking\b/gi, 'Consider')
+                    .replace(/\bprobably\b/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            },
+            'anxiety-neutralizer': (t) => {
+                return t
+                    .replace(/\bI'm sorry\b/gi, '')
+                    .replace(/\bSorry\b/gi, '')
+                    .replace(/\bjust wanted to\b/gi, 'I will')
+                    .replace(/\bif that's okay\b/gi, '')
+                    .replace(/\bI hope this is alright\b/gi, '')
+                    .replace(/\bmaybe we could\b/gi, "Let's")
+                    .replace(/\bjust\b/gi, '')
+                    .replace(/\bwondering if\b/gi, '')
+                    .replace(/\bif you don't mind\b/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            },
+            'legal': (t) => {
+                let refined = t
+                    .replace(/\byou owe\b/gi, 'remains outstanding')
+                    .replace(/\bpay me\b/gi, 'remit payment')
+                    .replace(/\bI need\b/gi, 'We respectfully request')
+                    .replace(/\bASAP\b/gi, 'at your earliest convenience')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                
+                if (!refined.includes('Per our agreement')) {
+                    refined += '\n\nPer our agreement, please address this matter within seven (7) business days.';
+                }
+                
+                return refined;
+            }
+        };
+        
+        const selectedMode = mode || 'professional';
+        const refineFunction = refinements[selectedMode] || refinements['professional'];
+        
+        const refined = refineFunction(text);
+        
+        // Simulate processing time
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        res.json({ 
+            refined,
+            mode: selectedMode,
+            originalLength: text.length,
+            refinedLength: refined.length
+        });
         
     } catch (error) {
-        console.error('Error:', error.message);
+        console.error('Refine error:', error);
         res.status(500).json({ 
             error: 'Processing failed',
-            message: error.message 
+            message: error.message
         });
     }
 });
 
-// NEW ENDPOINT for SignalWrite Editor
-app.post('/refine', async (req, res) => {
-    console.log('Refine request received:', req.body);
-    
-    try {
-        const { text, mode } = req.body;
-        
-        if (!text) {
-            return res.status(400).json({ error: 'No text provided' });
-        }
-
-        console.log(`Processing with ${mode} mode...`);
-
-        const responses = {
-            professional: (t) => {
-                return t
-                    .replace(/I think/gi, 'The evidence suggests')
-                    .replace(/maybe/gi, 'potentially')
-                    .replace(/kind of/gi, '')
-                    .replace(/sort of/gi, '')
-                    .replace(/I was thinking/gi, 'Consider')
-                    .replace(/probably/gi, '');
-            },
-            'anxiety-neutralizer': (t) => {
-                return t
-                    .replace(/I\'m sorry/gi, '')
-                    .replace(/just wanted to/gi, 'I will')
-                    .replace(/if that\'s okay/gi, '')
-                    .replace(/I hope this is alright/gi, '')
-                    .replace(/maybe we could/gi, 'Let\'s');
-            },
-            journalism: (t) => {
-                const sentences = t.split('.').filter(s => s.trim());
-                return sentences.length > 0 
-                    ? `${sentences[0].trim()}. ${sentences.slice(1).join('. ').trim()}`
-                    : t;
-            },
-            creative: (t) => {
-                return t + ' The words shimmered with possibility, each phrase a doorway to deeper meaning.';
-            }
-        };
-
-        const selectedMode = mode || 'professional';
-        const transform = responses[selectedMode] || responses.professional;
-        
-        const refined = transform(text);
-        
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        res.json({ refined });
-        
-    } catch (error) {
-        console.error('Refine error:', error.message);
-        res.status(500).json({ 
-            error: 'Refinement failed',
-            message: error.message 
-        });
-    }
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ 
+        error: 'Not found',
+        message: 'Endpoint does not exist'
+    });
 });
 
 export default app;
