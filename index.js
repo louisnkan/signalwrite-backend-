@@ -3,18 +3,42 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
-app.use(cors());
+
+// CORS Configuration
+app.use(cors({
+    origin: [
+        'https://louisnkan.github.io',
+        'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true
+}));
+
 app.use(express.json());
 
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 const API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2";
 
+// Health check endpoint
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'SignalWrite Backend Running',
+        model: 'Mistral-7B-Instruct-v0.2',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Refine endpoint
 app.post('/refine', async (req, res) => {
     try {
         const { text, mode } = req.body;
         
         if (!text) {
             return res.status(400).json({ error: 'No text provided' });
+        }
+
+        if (!HUGGINGFACE_API_KEY) {
+            return res.status(500).json({ error: 'API key not configured' });
         }
 
         const prompts = {
@@ -58,12 +82,18 @@ Legal version: [/INST]`
         });
 
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Hugging Face API error:', response.status, errorText);
+            
             if (response.status === 503) {
                 return res.status(503).json({ 
                     error: 'Model is loading. Please wait 20 seconds and try again.' 
                 });
             }
-            throw new Error(`API request failed: ${response.status}`);
+            
+            return res.status(response.status).json({ 
+                error: `AI API error: ${response.status}` 
+            });
         }
 
         const data = await response.json();
@@ -73,13 +103,23 @@ Legal version: [/INST]`
             refinedText = data[0].generated_text || '';
         } else if (data.generated_text) {
             refinedText = data.generated_text;
+        } else {
+            console.error('Unexpected response format:', data);
+            return res.status(500).json({ 
+                error: 'Unexpected response from AI' 
+            });
         }
 
-        // Clean up response
         refinedText = refinedText
             .replace('[/INST]', '')
             .replace('</s>', '')
             .trim();
+
+        if (!refinedText) {
+            return res.status(500).json({ 
+                error: 'AI returned empty response' 
+            });
+        }
 
         res.json({
             refined: refinedText,
@@ -87,24 +127,33 @@ Legal version: [/INST]`
         });
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Server error:', error);
         res.status(500).json({ 
             error: `Server error: ${error.message}` 
         });
     }
 });
 
-// Health check endpoint
-app.get('/', (req, res) => {
-    res.json({ 
-        status: 'SignalWrite Backend Running',
-        model: 'Mistral-7B-Instruct-v0.2'
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: err.message 
+    });
+});
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ 
+        error: 'Endpoint not found',
+        availableEndpoints: ['GET /', 'POST /refine']
     });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`SignalWrite backend running on port ${PORT}`);
 });
 
 module.exports = app;
