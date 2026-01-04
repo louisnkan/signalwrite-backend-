@@ -1,154 +1,110 @@
-import express from 'express';
+const express = require('express');
+const cors = require('cors');
+const fetch = require('node-fetch');
 
 const app = express();
-
-// CORS - Allow your frontend
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
-
+app.use(cors());
 app.use(express.json());
 
-// Health check
-app.get('/', (req, res) => {
-    res.json({ 
-        status: 'online',
-        timestamp: new Date().toISOString()
-    });
-});
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
+const API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2";
 
-// Rate limiting (simple in-memory)
-const requestCounts = new Map();
-const RATE_LIMIT = 100; // requests per hour
-const RATE_WINDOW = 3600000; // 1 hour in ms
-
-function checkRateLimit(ip) {
-    const now = Date.now();
-    const userRequests = requestCounts.get(ip) || [];
-    
-    // Remove old requests
-    const recentRequests = userRequests.filter(time => now - time < RATE_WINDOW);
-    
-    if (recentRequests.length >= RATE_LIMIT) {
-        return false;
-    }
-    
-    recentRequests.push(now);
-    requestCounts.set(ip, recentRequests);
-    return true;
-}
-
-// Refinement endpoint
 app.post('/refine', async (req, res) => {
     try {
-        const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-        
-        // Check rate limit
-        if (!checkRateLimit(ip)) {
-            return res.status(429).json({ 
-                error: 'Rate limit exceeded',
-                message: 'Please try again in an hour'
-            });
-        }
-        
         const { text, mode } = req.body;
         
-        // Validation
-        if (!text || typeof text !== 'string') {
-            return res.status(400).json({ 
-                error: 'Invalid input',
-                message: 'Text is required'
-            });
+        if (!text) {
+            return res.status(400).json({ error: 'No text provided' });
         }
-        
-        if (text.length > 10000) {
-            return res.status(400).json({ 
-                error: 'Text too long',
-                message: 'Maximum 10,000 characters'
-            });
-        }
-        
-        // Refinement logic
-        const refinements = {
-            'professional': (t) => {
-                return t
-                    .replace(/\bI think\b/gi, 'The evidence suggests')
-                    .replace(/\bmaybe\b/gi, 'potentially')
-                    .replace(/\bkind of\b/gi, '')
-                    .replace(/\bsort of\b/gi, '')
-                    .replace(/\bI was thinking\b/gi, 'Consider')
-                    .replace(/\bprobably\b/gi, '')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-            },
-            'anxiety-neutralizer': (t) => {
-                return t
-                    .replace(/\bI'm sorry\b/gi, '')
-                    .replace(/\bSorry\b/gi, '')
-                    .replace(/\bjust wanted to\b/gi, 'I will')
-                    .replace(/\bif that's okay\b/gi, '')
-                    .replace(/\bI hope this is alright\b/gi, '')
-                    .replace(/\bmaybe we could\b/gi, "Let's")
-                    .replace(/\bjust\b/gi, '')
-                    .replace(/\bwondering if\b/gi, '')
-                    .replace(/\bif you don't mind\b/gi, '')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-            },
-            'legal': (t) => {
-                let refined = t
-                    .replace(/\byou owe\b/gi, 'remains outstanding')
-                    .replace(/\bpay me\b/gi, 'remit payment')
-                    .replace(/\bI need\b/gi, 'We respectfully request')
-                    .replace(/\bASAP\b/gi, 'at your earliest convenience')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                
-                if (!refined.includes('Per our agreement')) {
-                    refined += '\n\nPer our agreement, please address this matter within seven (7) business days.';
-                }
-                
-                return refined;
-            }
+
+        const prompts = {
+            'professional': `<s>[INST] You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative. Keep the core message but elevate the language.
+
+Text: ${text}
+
+Refined version: [/INST]`,
+            
+            'anxiety-neutralizer': `<s>[INST] You are an expert editor specializing in confident communication. Rewrite this text to remove all anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite.
+
+Text: ${text}
+
+Confident version: [/INST]`,
+            
+            'legal': `<s>[INST] You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone, and structure it professionally. Include necessary qualifiers for liability protection.
+
+Text: ${text}
+
+Legal version: [/INST]`
         };
-        
-        const selectedMode = mode || 'professional';
-        const refineFunction = refinements[selectedMode] || refinements['professional'];
-        
-        const refined = refineFunction(text);
-        
-        // Simulate processing time
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        res.json({ 
-            refined,
-            mode: selectedMode,
-            originalLength: text.length,
-            refinedLength: refined.length
+
+        const prompt = prompts[mode] || prompts['professional'];
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                inputs: prompt,
+                parameters: {
+                    max_new_tokens: 500,
+                    temperature: 0.7,
+                    top_p: 0.95,
+                    do_sample: true,
+                    return_full_text: false
+                }
+            })
         });
+
+        if (!response.ok) {
+            if (response.status === 503) {
+                return res.status(503).json({ 
+                    error: 'Model is loading. Please wait 20 seconds and try again.' 
+                });
+            }
+            throw new Error(`API request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
         
+        let refinedText = '';
+        if (Array.isArray(data) && data.length > 0) {
+            refinedText = data[0].generated_text || '';
+        } else if (data.generated_text) {
+            refinedText = data.generated_text;
+        }
+
+        // Clean up response
+        refinedText = refinedText
+            .replace('[/INST]', '')
+            .replace('</s>', '')
+            .trim();
+
+        res.json({
+            refined: refinedText,
+            model: 'Mistral-7B-Instruct-v0.2'
+        });
+
     } catch (error) {
-        console.error('Refine error:', error);
+        console.error('Error:', error);
         res.status(500).json({ 
-            error: 'Processing failed',
-            message: error.message
+            error: `Server error: ${error.message}` 
         });
     }
 });
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ 
-        error: 'Not found',
-        message: 'Endpoint does not exist'
+// Health check endpoint
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'SignalWrite Backend Running',
+        model: 'Mistral-7B-Instruct-v0.2'
     });
 });
 
-export default app;
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+module.exports = app;
