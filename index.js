@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 
 const app = express();
 
-// CORS Configuration
+// CORS - ALLOW GITHUB PAGES
 app.use(cors({
     origin: [
         'https://louisnkan.github.io',
@@ -12,7 +12,7 @@ app.use(cors({
     ],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Accept', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Accept']
 }));
 
 app.use(express.json());
@@ -20,7 +20,6 @@ app.use(express.json());
 const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
 const API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2";
 
-// Health check endpoint
 app.get('/', (req, res) => {
     res.json({ 
         status: 'SignalWrite Backend Running',
@@ -29,7 +28,6 @@ app.get('/', (req, res) => {
     });
 });
 
-// Refine endpoint
 app.post('/refine', async (req, res) => {
     try {
         const { text, mode } = req.body;
@@ -43,19 +41,19 @@ app.post('/refine', async (req, res) => {
         }
 
         const prompts = {
-            'professional': `<s>[INST] You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative. Keep the core message but elevate the language.
+            'professional': `<s>[INST] You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative.
 
 Text: ${text}
 
 Refined version: [/INST]`,
             
-            'anxiety-neutralizer': `<s>[INST] You are an expert editor specializing in confident communication. Rewrite this text to remove all anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite.
+            'anxiety-neutralizer': `<s>[INST] You are an expert editor. Rewrite this text to remove all anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite.
 
 Text: ${text}
 
 Confident version: [/INST]`,
             
-            'legal': `<s>[INST] You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone, and structure it professionally. Include necessary qualifiers for liability protection.
+            'legal': `<s>[INST] You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone.
 
 Text: ${text}
 
@@ -83,15 +81,11 @@ Legal version: [/INST]`
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Hugging Face API error:', response.status, errorText);
-            
             if (response.status === 503) {
                 return res.status(503).json({ 
                     error: 'Model is loading. Please wait 20 seconds and try again.' 
                 });
             }
-            
             return res.status(response.status).json({ 
                 error: `AI API error: ${response.status}` 
             });
@@ -104,11 +98,6 @@ Legal version: [/INST]`
             refinedText = data[0].generated_text || '';
         } else if (data.generated_text) {
             refinedText = data.generated_text;
-        } else {
-            console.error('Unexpected response format:', data);
-            return res.status(500).json({ 
-                error: 'Unexpected response from AI' 
-            });
         }
 
         refinedText = refinedText
@@ -133,23 +122,6 @@ Legal version: [/INST]`
             error: `Server error: ${error.message}` 
         });
     }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-    console.error('Express error:', err);
-    res.status(500).json({ 
-        error: 'Internal server error',
-        message: err.message 
-    });
-});
-
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ 
-        error: 'Endpoint not found',
-        availableEndpoints: ['GET /', 'POST /refine']
-    });
 });
 
 const PORT = process.env.PORT || 3000;
