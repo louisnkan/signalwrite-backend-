@@ -1,37 +1,35 @@
 const express = require('express');
 const cors = require('cors');
+const fetch = require('node-fetch');
 
 const app = express();
 
-// CORS - Must be BEFORE routes
+// CORS Configuration
 app.use(cors({
-    origin: ['https://louisnkan.github.io', 'http://localhost:3000'],
+    origin: [
+        'https://louisnkan.github.io',
+        'http://localhost:3000'
+    ],
     methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Accept']
+    credentials: true
 }));
 
-// Body parser - Must be BEFORE routes
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json());
 
-const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY;
-const API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2";
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Health check - Root route
+// Health check endpoint
 app.get('/', (req, res) => {
     res.json({ 
         status: 'SignalWrite Backend Running',
-        model: 'Mistral-7B-Instruct-v0.2',
-        timestamp: new Date().toISOString(),
-        endpoints: ['/refine']
+        model: 'Mixtral-8x7B via Groq',
+        timestamp: new Date().toISOString()
     });
 });
 
-// Main refine endpoint
+// Refine endpoint
 app.post('/refine', async (req, res) => {
-    console.log('Refine request received:', req.body);
-    
     try {
         const { text, mode } = req.body;
         
@@ -39,97 +37,91 @@ app.post('/refine', async (req, res) => {
             return res.status(400).json({ error: 'No text provided' });
         }
 
-        if (!HUGGINGFACE_API_KEY) {
-            console.error('HUGGINGFACE_API_KEY not set!');
+        if (!GROQ_API_KEY) {
             return res.status(500).json({ error: 'API key not configured' });
         }
 
+        // Enhanced prompts for each mode
         const prompts = {
-            'professional': `<s>[INST] You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative. Keep the core message.
+            'professional': `You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative while keeping the core message.
 
-Text: ${text}
+Text: "${text}"
 
-Refined version: [/INST]`,
+Provide ONLY the refined version with no explanation:`,
             
-            'anxiety-neutralizer': `<s>[INST] You are an expert editor. Rewrite this text to remove all anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite.
+            'anxiety-neutralizer': `You are an expert editor specializing in confident communication. Rewrite this text to remove ALL anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite.
 
-Text: ${text}
+Text: "${text}"
 
-Confident version: [/INST]`,
+Provide ONLY the confident version with no explanation:`,
             
-            'legal': `<s>[INST] You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone.
+            'legal': `You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone, and structure it professionally with appropriate legal qualifiers.
 
-Text: ${text}
+Text: "${text}"
 
-Legal version: [/INST]`
+Provide ONLY the legal version with no explanation:`
         };
 
-        const prompt = prompts[mode] || prompts['professional'];
+        const systemPrompt = prompts[mode] || prompts['professional'];
 
-        console.log('Calling Hugging Face API...');
-        
-        const response = await fetch(API_URL, {
+        console.log('Sending request to Groq...');
+
+        const response = await fetch(GROQ_URL, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${HUGGINGFACE_API_KEY}`,
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                inputs: prompt,
-                parameters: {
-                    max_new_tokens: 500,
-                    temperature: 0.7,
-                    top_p: 0.95,
-                    do_sample: true,
-                    return_full_text: false
-                }
+                model: "mixtral-8x7b-32768",
+                messages: [
+                    {
+                        role: "user",
+                        content: systemPrompt
+                    }
+                ],
+                temperature: 0.7,
+                max_tokens: 1000,
+                top_p: 1,
+                stream: false
             })
         });
 
-        console.log('HF API status:', response.status);
-
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('HF API error:', errorText);
-            
-            if (response.status === 503) {
-                return res.status(503).json({ 
-                    error: 'Model is loading. Please wait 20 seconds and try again.' 
-                });
-            }
+            console.error('Groq API error:', response.status, errorText);
             
             return res.status(response.status).json({ 
-                error: `AI API error: ${response.status}` 
+                error: `Groq API error: ${response.status}`,
+                details: errorText
             });
         }
 
         const data = await response.json();
-        console.log('HF API response:', data);
         
-        let refinedText = '';
-        if (Array.isArray(data) && data.length > 0) {
-            refinedText = data[0].generated_text || '';
-        } else if (data.generated_text) {
-            refinedText = data.generated_text;
+        console.log('Groq response:', data);
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            console.error('Unexpected Groq response format:', data);
+            return res.status(500).json({ 
+                error: 'Unexpected response format from AI' 
+            });
         }
 
-        refinedText = refinedText
-            .replace('[/INST]', '')
-            .replace('</s>', '')
-            .trim();
+        const refined = data.choices[0].message.content.trim();
 
-        if (!refinedText) {
-            console.error('Empty refined text');
+        if (!refined) {
             return res.status(500).json({ 
                 error: 'AI returned empty response' 
             });
         }
 
-        console.log('Success! Refined text length:', refinedText.length);
+        console.log('Refinement successful');
 
         res.json({
-            refined: refinedText,
-            model: 'Mistral-7B-Instruct-v0.2'
+            refined: refined,
+            model: 'Mixtral-8x7B',
+            mode: mode
         });
 
     } catch (error) {
@@ -140,20 +132,27 @@ Legal version: [/INST]`
     }
 });
 
-// Error handling
+// Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Express error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: err.message 
+    });
 });
 
 // 404 handler
 app.use((req, res) => {
-    console.log('404 - Route not found:', req.method, req.path);
     res.status(404).json({ 
         error: 'Endpoint not found',
-        available: ['GET /', 'POST /refine']
+        availableEndpoints: ['GET /', 'POST /refine']
     });
 });
 
-// Export for Vercel
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`SignalWrite backend running on port ${PORT}`);
+    console.log(`Using Groq API with Mixtral-8x7B model`);
+});
+
 module.exports = app;
