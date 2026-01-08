@@ -21,11 +21,44 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // Health check endpoint
 app.get('/', (req, res) => {
-    res.json({ 
-        status: 'SignalWrite Backend Running',
-        model: 'Mixtral-8x7B via Groq',
-        timestamp: new Date().toISOString()
-    });
+    // DEBUG ENDPOINT - Test Groq connection
+app.get('/test-groq', async (req, res) => {
+    try {
+        if (!GROQ_API_KEY) {
+            return res.json({ 
+                error: 'GROQ_API_KEY not set',
+                env_vars: Object.keys(process.env).filter(k => k.includes('GROQ'))
+            });
+        }
+
+        const response = await fetch(GROQ_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: "mixtral-8x7b-32768",
+                messages: [{ role: "user", content: "Say 'Hello from Groq!'" }],
+                max_tokens: 50
+            })
+        });
+
+        const data = await response.json();
+        
+        res.json({
+            success: true,
+            groq_status: response.status,
+            groq_response: data,
+            key_present: !!GROQ_API_KEY,
+            key_preview: GROQ_API_KEY ? GROQ_API_KEY.substring(0, 7) + '...' : 'none'
+        });
+    } catch (error) {
+        res.json({ 
+            error: error.message,
+            stack: error.stack
+        });
+    }
 });
 
 // Refine endpoint
