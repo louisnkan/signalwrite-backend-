@@ -5,34 +5,29 @@ const fetch = require('node-fetch');
 const app = express();
 
 app.use(cors({
-    origin: '*',  // Allow all origins for now (fix later)
-    methods: ['GET', 'POST', 'OPTIONS']
+    origin: [
+        'https://louisnkan.github.io',
+        'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Health check
 app.get('/', (req, res) => {
     res.json({ 
-        status: 'SignalWrite Backend',
-        model: 'Mixtral-8x7B',
+        status: 'SignalWrite Backend Running',
+        model: 'Mixtral-8x7B via Groq',
         timestamp: new Date().toISOString(),
         groq_key_present: !!GROQ_API_KEY
     });
 });
 
-// Test endpoint
-app.get('/test', (req, res) => {
-    res.json({ message: 'Backend is working!' });
-});
-
-// Refine endpoint
 app.post('/refine', async (req, res) => {
-    console.log('Refine request received:', req.body);
-
     try {
         const { text, mode } = req.body;
         
@@ -42,22 +37,35 @@ app.post('/refine', async (req, res) => {
 
         if (!GROQ_API_KEY) {
             return res.status(500).json({ 
-                error: 'Groq API key not configured',
-                hint: 'Add GROQ_API_KEY to Vercel environment variables'
+                error: 'Groq API key not configured. Please add GROQ_API_KEY to environment variables.' 
             });
         }
 
-        const systemMessages = {
-            'professional': 'You are a professional editor. Refine the following text to be clear, confident, and business-ready. Remove hedging words like "maybe", "perhaps", "I think". Return ONLY the refined text with no explanations.',
-            'anxiety-neutralizer': 'You are an expert editor. Rewrite the following text to remove all anxious or apologetic language. Remove words like "sorry", "just", "if you don\'t mind". Make it direct and confident. Return ONLY the refined text with no explanations.',
-            'legal': 'You are a legal writing expert. Rewrite the following text in formal legal style with precise language and proper structure. Return ONLY the refined text with no explanations.'
+        const prompts = {
+            'professional': `Refine this text to be professional and business-ready. Remove hedging words like "maybe", "perhaps", "I think". Make it direct and confident:
+
+"${text}"
+
+Provide only the refined version:`,
+            
+            'anxiety-neutralizer': `Rewrite this to remove anxious or apologetic language. Remove "sorry", "just wondering", "if you don't mind". Make it assertive and direct:
+
+"${text}"
+
+Provide only the confident version:`,
+            
+            'legal': `Rewrite this in formal legal style with precise language and professional structure:
+
+"${text}"
+
+Provide only the legal version:`
         };
 
-        const systemPrompt = systemMessages[mode] || systemMessages['professional'];
+        const systemPrompt = prompts[mode] || prompts['professional'];
 
         console.log('Calling Groq API...');
 
-        const groqResponse = await fetch(API_URL, {
+        const response = await fetch(GROQ_URL, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${GROQ_API_KEY}`,
@@ -65,68 +73,62 @@ app.post('/refine', async (req, res) => {
             },
             body: JSON.stringify({
                 model: "mixtral-8x7b-32768",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: text }
-                ],
+                messages: [{
+                    role: "user",
+                    content: systemPrompt
+                }],
                 temperature: 0.7,
                 max_tokens: 1000
             })
         });
 
-        console.log('Groq response status:', groqResponse.status);
-
-        if (!groqResponse.ok) {
-            const errorText = await groqResponse.text();
-            console.error('Groq error:', errorText);
-            return res.status(groqResponse.status).json({ 
-                error: 'Groq API error',
-                details: errorText,
-                status: groqResponse.status
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Groq error:', response.status, errorText);
+            return res.status(500).json({ 
+                error: `Groq API error: ${response.status}` 
             });
         }
 
-        const data = await groqResponse.json();
-        console.log('Groq success');
+        const data = await response.json();
+        
+        if (!data.choices || !data.choices[0]) {
+            console.error('Invalid Groq response:', data);
+            return res.status(500).json({ error: 'Invalid AI response' });
+        }
 
-        const refined = data.choices?.[0]?.message?.content?.trim();
+        const refined = data.choices[0].message.content.trim();
 
         if (!refined) {
-            return res.status(500).json({ 
-                error: 'No response from AI',
-                raw_response: data
-            });
+            return res.status(500).json({ error: 'AI returned empty response' });
         }
 
+        console.log('Refinement successful');
         res.json({
             refined: refined,
-            model: 'Mixtral-8x7B',
-            mode: mode
+            model: 'Mixtral-8x7B'
         });
 
     } catch (error) {
         console.error('Server error:', error);
         res.status(500).json({ 
-            error: error.message,
-            stack: error.stack
+            error: `Server error: ${error.message}` 
         });
     }
 });
 
-// 404 handler
+app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
+
 app.use((req, res) => {
-    res.status(404).json({ 
-        error: 'Not found',
-        path: req.path,
-        method: req.method,
-        available: ['GET /', 'GET /test', 'POST /refine']
-    });
+    res.status(404).json({ error: 'Endpoint not found' });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Groq key present: ${!!GROQ_API_KEY}`);
 });
 
 module.exports = app;
