@@ -5,63 +5,57 @@ const fetch = require('node-fetch');
 const app = express();
 
 app.use(cors({
-    origin: [
-        'https://louisnkan.github.io',
-        'http://localhost:3000'
-    ],
+    origin: ['https://louisnkan.github.io', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+// Health check
 app.get('/', (req, res) => {
     res.json({ 
         status: 'SignalWrite Backend Running',
         model: 'Mixtral-8x7B via Groq',
         timestamp: new Date().toISOString(),
-        groq_key_present: !!GROQ_API_KEY
+        apiKeyConfigured: !!GROQ_API_KEY
     });
 });
 
+// Refine endpoint
 app.post('/refine', async (req, res) => {
     try {
         const { text, mode } = req.body;
         
-        if (!text) {
-            return res.status(400).json({ error: 'No text provided' });
+        // Validation
+        if (!text || typeof text !== 'string') {
+            return res.status(400).json({ error: 'Invalid text provided' });
         }
 
         if (!GROQ_API_KEY) {
-            return res.status(500).json({ 
-                error: 'Groq API key not configured. Please add GROQ_API_KEY to environment variables.' 
-            });
+            console.error('GROQ_API_KEY not configured');
+            return res.status(500).json({ error: 'API key not configured. Please contact support.' });
         }
 
+        // Mode prompts
         const prompts = {
-            'professional': `Refine this text to be professional and business-ready. Remove hedging words like "maybe", "perhaps", "I think". Make it direct and confident:
+            'professional': `You are a professional editor. Refine this text to be clear, confident, and business-ready. Remove hedging language like "maybe", "perhaps", "I think". Make it direct and authoritative. Only return the refined text, nothing else.
 
-"${text}"
-
-Provide only the refined version:`,
+Text: ${text}`,
             
-            'anxiety-neutralizer': `Rewrite this to remove anxious or apologetic language. Remove "sorry", "just wondering", "if you don't mind". Make it assertive and direct:
+            'anxiety-neutralizer': `You are an expert editor. Rewrite this text to remove all anxious, apologetic, or worried language. Remove phrases like "sorry", "just wondering", "if you don't mind". Make it assertive and direct while staying polite. Only return the refined text, nothing else.
 
-"${text}"
-
-Provide only the confident version:`,
+Text: ${text}`,
             
-            'legal': `Rewrite this in formal legal style with precise language and professional structure:
+            'legal': `You are a legal writing expert. Rewrite this text in formal legal style. Use precise language, avoid ambiguity, maintain factual tone. Only return the refined text, nothing else.
 
-"${text}"
-
-Provide only the legal version:`
+Text: ${text}`
         };
 
-        const systemPrompt = prompts[mode] || prompts['professional'];
+        const selectedPrompt = prompts[mode] || prompts['professional'];
 
         console.log('Calling Groq API...');
 
@@ -73,62 +67,99 @@ Provide only the legal version:`
             },
             body: JSON.stringify({
                 model: "mixtral-8x7b-32768",
-                messages: [{
-                    role: "user",
-                    content: systemPrompt
-                }],
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are a professional writing assistant. Refine text as instructed. Return only the refined text."
+                    },
+                    {
+                        role: "user",
+                        content: selectedPrompt
+                    }
+                ],
                 temperature: 0.7,
-                max_tokens: 1000
+                max_tokens: 1000,
+                top_p: 1,
+                stream: false
             })
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Groq error:', response.status, errorText);
+            const errorBody = await response.text();
+            console.error('Groq API error:', response.status, errorBody);
+            
+            if (response.status === 401) {
+                return res.status(500).json({ 
+                    error: 'API authentication failed. Please check API key configuration.' 
+                });
+            }
+            
+            if (response.status === 429) {
+                return res.status(429).json({ 
+                    error: 'Rate limit reached. Please try again in a moment.' 
+                });
+            }
+            
             return res.status(500).json({ 
-                error: `Groq API error: ${response.status}` 
+                error: `AI service error: ${response.status}` 
             });
         }
 
         const data = await response.json();
-        
-        if (!data.choices || !data.choices[0]) {
-            console.error('Invalid Groq response:', data);
-            return res.status(500).json({ error: 'Invalid AI response' });
+        console.log('Groq response received');
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            console.error('Unexpected Groq response format:', JSON.stringify(data));
+            return res.status(500).json({ 
+                error: 'Unexpected response format from AI service' 
+            });
         }
 
         const refined = data.choices[0].message.content.trim();
 
         if (!refined) {
-            return res.status(500).json({ error: 'AI returned empty response' });
+            return res.status(500).json({ 
+                error: 'AI returned empty response' 
+            });
         }
 
-        console.log('Refinement successful');
         res.json({
             refined: refined,
-            model: 'Mixtral-8x7B'
+            model: 'Mixtral-8x7B',
+            tokens: data.usage || {}
         });
 
     } catch (error) {
-        console.error('Server error:', error);
+        console.error('Server error:', error.message);
+        console.error('Stack:', error.stack);
         res.status(500).json({ 
-            error: `Server error: ${error.message}` 
+            error: 'Internal server error. Please try again.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
 
-app.use((err, req, res, next) => {
-    console.error('Express error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ 
+        error: 'Endpoint not found',
+        availableEndpoints: ['GET /', 'POST /refine']
+    });
 });
 
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
+// Error handler
+app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.status(500).json({ 
+        error: 'Internal server error',
+        message: err.message 
+    });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`✅ SignalWrite backend running on port ${PORT}`);
+    console.log(`✅ API Key configured: ${!!GROQ_API_KEY}`);
 });
 
 module.exports = app;
