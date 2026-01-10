@@ -3,16 +3,34 @@ const cors = require('cors');
 
 const app = express();
 
-// CORS Configuration
+// CORS Configuration - CRITICAL FIX
 app.use(cors({
-  origin: [
-    'https://louisnkan.github.io',
-    'http://localhost:3000',
-    'http://localhost:5500'
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'https://louisnkan.github.io',
+      'http://localhost:3000',
+      'http://localhost:5500',
+      'http://127.0.0.1:5500'
+    ];
+    
+    // Allow requests with no origin (mobile apps, Postman, etc)
+    if (!origin) return callback(null, true);
+    
+    // Allow if origin matches or is subdomain
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      return callback(null, true);
+    }
+    
+    callback(null, true); // TEMPORARY: Allow all for debugging
+  },
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
+
+// Add explicit OPTIONS handler
+app.options('*', cors());
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -26,10 +44,33 @@ app.get('/', (req, res) => {
   });
 });
 
+// Test endpoint for debugging
+app.get('/test', (req, res) => {
+  console.log('TEST endpoint hit from:', req.headers.origin);
+  res.json({ 
+    message: 'Backend is reachable',
+    cors: 'working',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// POST test endpoint
+app.post('/test', (req, res) => {
+  console.log('POST TEST received:', req.body);
+  res.json({ 
+    message: 'POST working',
+    received: req.body,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Main refine endpoint
 app.post('/refine', async (req, res) => {
-  console.log('=== REFINE REQUEST ===');
+  console.log('=== REFINE REQUEST RECEIVED ===');
   console.log('Time:', new Date().toISOString());
+  console.log('Origin:', req.headers.origin);
+  console.log('Method:', req.method);
+  console.log('Body:', JSON.stringify(req.body).substring(0, 100));
   
   try {
     const { text, mode } = req.body;
