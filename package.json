@@ -1,17 +1,19 @@
 {
   "name": "signalwrite-backend",
   "version": "1.0.0",
-  "description": "AI-powered writing refinement backend",
+  "description": "SignalWrite AI Writing Refinement Backend",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.x"
+  },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "node-fetch": "^2.7.0"
+    "cors": "^2.8.5"
   },
-  "engines": {
-    "node": "24.x"
-  }
+  "keywords": ["ai", "writing", "groq"],
+  "license": "MIT"
 }
